@@ -1,0 +1,86 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY: video-processor-app
+  EKS_CLUSTER_NAME: video-processing-aws
+  GKE_CLUSTER_NAME: video-processing-gcp
+  GCP_REGION: us-central1
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    # - name: Install Terraform
+    #   uses: hashicorp/setup-terraform@v1
+
+    # - name: Terraform Init and Apply
+    #   run: |
+    #     cd terraform
+    #     terraform init
+    #     terraform apply -auto-approve
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Create ECR Repository if not exists
+      run: |
+        aws ecr describe-repositories --repository-names $ECR_REPOSITORY || \
+        aws ecr create-repository \
+          --repository-name $ECR_REPOSITORY \
+          --image-tag-mutability MUTABLE \
+          --image-scanning-configuration scanOnPush=true
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./src/video_processor
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+    - name: Configure kubectl and update deployments
+      if: github.ref == 'refs/heads/main'
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Wait for EKS cluster to be ready
+        aws eks wait cluster-active --name $EKS_CLUSTER_NAME --region $AWS_REGION
+        
+        # Configure kubectl
+        aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
+        
+        # Create ECR secret
+        kubectl create secret docker-registry ecr-secret \
+          --docker-server=$ECR_REGISTRY \
+          --docker-username=AWS \
+          --docker-password=$(aws ecr get-login-password) \
+          --namespace=default \
+          --validate=false \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Configure GCP credentials
+        gcloud auth activate-service-account --key-file=${{ secrets.GCP_SA_KEY }}
+        gcloud container clusters get-credentials $GKE_CLUSTER_NAME --region $GCP_REGION
+        
+        # Update deployments
+        kubectl set image deployment/video-processor video-processor=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --all-namespaces
