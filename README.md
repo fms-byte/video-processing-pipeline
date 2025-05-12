@@ -235,3 +235,43 @@ kubectl create secret generic cloud-credentials \
 - RBAC enabled on Kubernetes clusters
 - TLS encryption for inter-service communication
 - Container security best practices implemented
+
+
+Frontend:
+- Next.js
+- Shadcn UI
+- Framer Motion
+- Lucide Icons
+- Tailwind CSS
+- TypeScript
+
+Backend:
+- Python
+- FastAPI
+- Redis
+- Docker
+- Kubernetes
+- Terraform
+- AWS EKS
+- GCP GKE
+- NGINX
+
+Features:
+- Upload video
+- Process video
+- Download video
+- List jobs
+- Get job status
+- Load balancing between clouds
+- High availability
+- Scalability
+- Cost optimization
+- Intelligent traffic routing
+
+This project demonstrates a modern, cloud-native application with:
+- Microservices architecture
+- Containerization
+- Infrastructure as Code
+- Multi-cloud deployment
+- Real-time processing
+- Modern UI/UX design
